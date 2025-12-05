@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕌</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reciter Hub Ultimate</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script>
+      // Tailwind Config
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              beige: {
+                50: '#fdfbf7',
+                100: '#f7f3e8',
+                200: '#efe5cd',
+                300: '#e5d0a8',
+                400: '#dcb681',
+                500: '#d4a373', // Main accent
+                600: '#b08968',
+                700: '#8d6e53',
+                800: '#6f5643', // Text
+                900: '#5c4637',
+              }
+            },
+            fontFamily: {
+              sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+            },
+            animation: {
+              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+      .dark ::-webkit-scrollbar-thumb { background: #475569; }
+      .beige-theme ::-webkit-scrollbar-thumb { background: #d4a373; }
+
+      /* Visualizer Animation */
+      @keyframes wave {
+        0%, 100% { height: 4px; }
+        50% { height: 16px; }
+      }
+      .wave-bar {
+        animation: wave 1s ease-in-out infinite;
+        width: 3px;
+        border-radius: 2px;
+        background-color: currentColor;
+      }
+
+      /* Range Slider Reset */
+      input[type=range] { -webkit-appearance: none; background: transparent; }
+      input[type=range]:focus { outline: none; }
+      input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; }
+
+      /* Beige Theme Specifics */
+      .beige-theme body { background-color: #f7f3e8; color: #5c4637; }
+      .beige-theme .bg-card { background-color: #fdfbf7; border-color: #e5d0a8; }
+      
+      /* Glassmorphism utilities */
+      .glass {
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+    </style>
+  </head>
+  <body class="transition-colors duration-500 overflow-hidden">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+      // --- UTILS ---
+      const formatTime = (seconds) => {
+        if (isNaN(seconds) || seconds < 0) return '00:00';
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      };
+
+      // --- API ---
+      const API_BASE_URL = 'https://mp3quran.net/api/v3';
+      const langMap = { en: 'eng', ar: 'ara' };
+
+      const fetchReciters = async (language) => {
+        const response = await fetch(`${API_BASE_URL}/reciters?language=${langMap[language]}`);
+        const data = await response.json();
+        // Simulate "Popularity" for the Rank View by assigning a random listener count
+        return data.reciters.map(r => ({
+          ...r,
+          listeners: Math.floor(Math.random() * 5000000) + 100000 // Fake data for gamification
+        }));
+      };
+
+      const fetchReciterDetails = async (reciterId, language) => {
+        const response = await fetch(`${API_BASE_URL}/reciters?language=${langMap[language]}&reciter=${reciterId}`);
+        const data = await response.json();
+        return data.reciters[0];
+      };
+
+      const fetchSurahNames = async (language) => {
+        const response = await fetch(`${API_BASE_URL}/suwar?language=${langMap[language]}`);
+        const data = await response.json();
+        return data.suwar;
+      };
+
+      // --- ICONS ---
+      const Icons = {
+        Play: (props) => <svg {...props} fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>,
+        Pause: (props) => <svg {...props} fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>,
+        Next: (props) => <svg {...props} fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>,
+        Prev: (props) => <svg {...props} fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>,
+        Sun: (props) => <svg {...props} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>,
+        Moon: (props) => <svg {...props} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>,
+        Eye: (props) => <svg {...props} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>,
+        Grid: (props) => <svg {...props} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>,
+        List: (props) => <svg {...props} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>,
+        Trophy: (props) => <svg {...props} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+        Search: (props) => <svg {...props} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>,
+        Close: (props) => <svg {...props} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      };
+
+      // --- COMPONENTS ---
+
+      // 1. Theme & View Controls
+      const Header = ({ theme, setTheme, viewMode, setViewMode, language, setLanguage, t }) => {
+        const themes = [
+          { id: 'light', icon: Icons.Sun, label: 'Light' },
+          { id: 'dark', icon: Icons.Moon, label: 'Dark' },
+          { id: 'beige', icon: Icons.Eye, label: 'Comfort' }
+        ];
+
+        const views = [
+          { id: 'grid', icon: Icons.Grid, label: 'Cards' },
+          { id: 'list', icon: Icons.List, label: 'A-Z' },
+          { id: 'rank', icon: Icons.Trophy, label: 'Rank' }
+        ];
+
+        return (
+          <header className={`
+            sticky top-0 z-40 px-4 py-3 border-b shadow-sm transition-all duration-300
+            ${theme === 'dark' ? 'bg-zinc-900/90 border-zinc-800 text-white' : 
+              theme === 'beige' ? 'bg-beige-100/90 border-beige-300 text-beige-900' : 
+              'bg-white/90 border-gray-200 text-gray-800'}
+            glass
+          `}>
+            <div className="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-2xl shadow-inner ${theme === 'beige' ? 'bg-beige-200 text-beige-800' : 'bg-sky-100 dark:bg-sky-900'}`}>
+                  🕌
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight">{t.appName}</h1>
+                  <p className="text-xs opacity-70">{t.appDescription}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 bg-black/5 p-1.5 rounded-2xl">
+                {/* View Switcher */}
+                <div className="flex bg-white dark:bg-zinc-800 rounded-xl p-1 shadow-sm">
+                  {views.map(v => (
+                    <button
+                      key={v.id}
+                      onClick={() => setViewMode(v.id)}
+                      className={`p-2 rounded-lg transition-all ${viewMode === v.id ? 'bg-sky-500 text-white shadow-md scale-105' : 'hover:bg-gray-100 dark:hover:bg-zinc-700 opacity-60 hover:opacity-100'}`}
+                      title={v.label}
+                    >
+                      <v.icon className="w-5 h-5" />
+                    </button>
+                  ))}
+                </div>
+
+                <div className="w-px h-6 bg-gray-300 dark:bg-zinc-700"></div>
+
+                {/* Theme Switcher */}
+                <div className="flex bg-white dark:bg-zinc-800 rounded-xl p-1 shadow-sm">
+                  {themes.map(th => (
+                    <button
+                      key={th.id}
+                      onClick={() => setTheme(th.id)}
+                      className={`p-2 rounded-lg transition-all ${theme === th.id ? 
+                        (th.id === 'beige' ? 'bg-beige-500 text-white' : 'bg-sky-500 text-white') + ' shadow-md scale-105' : 
+                        'hover:bg-gray-100 dark:hover:bg-zinc-700 opacity-60 hover:opacity-100'}`}
+                      title={th.label}
+                    >
+                      <th.icon className="w-5 h-5" />
+                    </button>
+                  ))}
+                </div>
+                
+                {/* Lang Switcher */}
+                 <button
+                  onClick={() => setLanguage(language === 'en' ? 'ar' : 'en')}
+                  className="px-3 py-1 text-sm font-bold rounded-lg border border-current opacity-60 hover:opacity-100 transition-opacity"
+                >
+                  {language === 'en' ? 'ع' : 'EN'}
+                </button>
+              </div>
+            </div>
+          </header>
+        );
+      };
+
+      // 2. Reciter List (Adaptive)
+      const ReciterList = ({ reciters, selectedReciter, onSelectReciter, viewMode, theme, t }) => {
+        const [filter, setFilter] = useState('');
+
+        const sortedReciters = useMemo(() => {
+          let data = [...reciters].filter(r => r.name.toLowerCase().includes(filter.toLowerCase()));
+          
+          if (viewMode === 'list') {
+            // Alphabetical
+            data.sort((a, b) => a.name.localeCompare(b.name));
+          } else if (viewMode === 'rank') {
+            // Popularity (simulated by listeners)
+            data.sort((a, b) => b.listeners - a.listeners);
+          }
+          // Grid uses default API order or ID
+          return data;
+        }, [reciters, filter, viewMode]);
+
+        const cardBaseClass = `
+          cursor-pointer transition-all duration-300 relative overflow-hidden group
+          ${theme === 'dark' ? 'hover:bg-zinc-800 border-zinc-700' : 
+            theme === 'beige' ? 'hover:bg-beige-200 border-beige-300' : 
+            'hover:bg-sky-50 border-gray-200'}
+        `;
+
+        const activeClass = theme === 'beige' 
+          ? 'bg-beige-300 border-beige-500 shadow-beige-200 ring-2 ring-beige-400' 
+          : 'bg-sky-100 dark:bg-sky-900/30 border-sky-500 ring-2 ring-sky-400';
+
+        return (
+          <div className="flex flex-col h-full">
+            <div className={`p-4 sticky top-0 z-10 glass border-b ${theme === 'dark' ? 'border-zinc-800' : theme === 'beige' ? 'border-beige-300' : 'border-gray-200'}`}>
+              <div className="relative">
+                <Icons.Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 opacity-50" />
+                <input 
+                  type="text" 
+                  placeholder={t.search}
+                  value={filter}
+                  onChange={e => setFilter(e.target.value)}
+                  className={`w-full pl-10 pr-4 py-2 rounded-full border bg-transparent focus:outline-none focus:ring-2 
+                    ${theme === 'dark' ? 'border-zinc-700 focus:ring-sky-500' : 
+                      theme === 'beige' ? 'border-beige-400 focus:ring-beige-500 placeholder-beige-700' : 
+                      'border-gray-300 focus:ring-sky-500'}`}
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4">
+              {/* --- GRID VIEW --- */}
+              {viewMode === 'grid' && (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {sortedReciters.map(r => (
+                    <div 
+                      key={r.id}
+                      onClick={() => onSelectReciter(r)}
+                      className={`
+                        ${cardBaseClass} rounded-2xl border p-4 flex flex-col items-center text-center gap-3 shadow-sm hover:shadow-md
+                        ${selectedReciter?.id === r.id ? activeClass : 'bg-white dark:bg-zinc-900/50'}
+                      `}
+                    >
+                      <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl mb-1
+                        ${theme === 'beige' ? 'bg-beige-200 text-beige-800' : 'bg-gradient-to-br from-sky-400 to-blue-600 text-white'}
+                      `}>
+                        {r.name.charAt(0)}
+                      </div>
+                      <h3 className="font-semibold text-sm line-clamp-2">{r.name}</h3>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* --- LIST VIEW (A-Z) --- */}
+              {viewMode === 'list' && (
+                <div className="space-y-2">
+                  {sortedReciters.map(r => (
+                    <div 
+                      key={r.id}
+                      onClick={() => onSelectReciter(r)}
+                      className={`
+                        ${cardBaseClass} rounded-lg border-b p-3 flex items-center gap-4
+                        ${selectedReciter?.id === r.id ? activeClass : 'bg-transparent'}
+                      `}
+                    >
+                      <div className={`w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold
+                         ${theme === 'beige' ? 'bg-beige-400 text-white' : 'bg-gray-200 dark:bg-zinc-700'}
+                      `}>
+                        {r.name.charAt(0)}
+                      </div>
+                      <h3 className="font-medium">{r.name}</h3>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* --- RANK VIEW (Popularity) --- */}
+              {viewMode === 'rank' && (
+                <div className="space-y-3">
+                  {sortedReciters.map((r, idx) => (
+                    <div 
+                      key={r.id}
+                      onClick={() => onSelectReciter(r)}
+                      className={`
+                        ${cardBaseClass} rounded-xl border p-3 flex items-center justify-between shadow-sm
+                        ${selectedReciter?.id === r.id ? activeClass : 'bg-white dark:bg-zinc-900/50'}
+                      `}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`
+                          w-10 h-10 flex items-center justify-center text-lg font-black italic
+                          ${idx < 3 ? 'text-yellow-500 scale-110' : 'opacity-50'}
+                        `}>
+                          #{idx + 1}
+                        </div>
+                        <div>
+                          <h3 className="font-bold">{r.name}</h3>
+                          <p className="text-xs opacity-60 flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                            {r.listeners.toLocaleString()} {t.listeners}
+                          </p>
+                        </div>
+                      </div>
+                      {idx < 3 && <Icons.Trophy className="w-6 h-6 text-yellow-500" />}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      // 3. Surah Selector
+      const SurahList = ({ playlist, currentTrack, onSelectSurah, isLoading, theme, t }) => {
+        if (isLoading) return (
+          <div className="flex items-center justify-center h-full">
+            <div className={`animate-spin rounded-full h-12 w-12 border-4 border-t-transparent ${theme === 'beige' ? 'border-beige-600' : 'border-sky-500'}`}></div>
+          </div>
+        );
+
+        if (!playlist.length) return (
+          <div className="flex flex-col items-center justify-center h-full opacity-50 p-8 text-center">
+            <div className="text-6xl mb-4">📖</div>
+            <p>{t.selectPrompt}</p>
+          </div>
+        );
+
+        return (
+          <div className="h-full overflow-y-auto p-2">
+            {playlist.map((track, idx) => {
+              const isActive = currentTrack?.id === track.id;
+              return (
+                <button
+                  key={track.id}
+                  onClick={() => onSelectSurah(track, idx)}
+                  className={`
+                    w-full text-left p-3 mb-2 rounded-lg transition-all flex items-center justify-between group
+                    ${isActive 
+                      ? (theme === 'beige' ? 'bg-beige-600 text-white shadow-lg transform scale-[1.02]' : 'bg-sky-500 text-white shadow-lg transform scale-[1.02]') 
+                      : (theme === 'dark' ? 'hover:bg-zinc-800 bg-zinc-900/50' : theme === 'beige' ? 'hover:bg-beige-200 bg-white/50' : 'hover:bg-gray-100 bg-white')}
+                  `}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs font-mono opacity-60 w-8 ${isActive ? 'text-white' : ''}`}>
+                      {String(track.id).padStart(3, '0')}
+                    </span>
+                    <div>
+                      <p className="font-semibold">{track.name}</p>
+                      <p className={`text-xs ${isActive ? 'text-white/80' : 'opacity-50'}`}>{track.transliteration}</p>
+                    </div>
+                  </div>
+                  {isActive && (
+                    <div className="flex gap-1 items-end h-4">
+                      <div className="wave-bar bg-white" style={{animationDelay: '0s'}}></div>
+                      <div className="wave-bar bg-white" style={{animationDelay: '0.2s'}}></div>
+                      <div className="wave-bar bg-white" style={{animationDelay: '0.4s'}}></div>
+                    </div>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        );
+      };
+
+      // 4. Adaptive Player
+      const Player = ({ track, onNext, onPrev, theme, viewMode }) => {
+        const audioRef = useRef(null);
+        const [isPlaying, setIsPlaying] = useState(false);
+        const [progress, setProgress] = useState(0);
+        const [duration, setDuration] = useState(0);
+
+        useEffect(() => {
+          if (track && audioRef.current) {
+            audioRef.current.src = track.audioUrl;
+            audioRef.current.play().then(() => setIsPlaying(true)).catch(console.error);
+          }
+        }, [track]);
+
+        useEffect(() => {
+          const audio = audioRef.current;
+          if(!audio) return;
+          const update = () => setProgress((audio.currentTime / audio.duration) * 100);
+          const meta = () => setDuration(audio.duration);
+          const end = () => { setIsPlaying(false); onNext(); };
+          
+          audio.addEventListener('timeupdate', update);
+          audio.addEventListener('loadedmetadata', meta);
+          audio.addEventListener('ended', end);
+          return () => {
+            audio.removeEventListener('timeupdate', update);
+            audio.removeEventListener('loadedmetadata', meta);
+            audio.removeEventListener('ended', end);
+          }
+        }, [onNext]);
+
+        const togglePlay = () => {
+          if (isPlaying) audioRef.current.pause();
+          else audioRef.current.play();
+          setIsPlaying(!isPlaying);
+        };
+
+        const seek = (e) => {
+          const val = e.target.value;
+          audioRef.current.currentTime = (val / 100) * duration;
+          setProgress(val);
+        };
+
+        if (!track) return null;
+
+        // Dynamic Player Styling based on ViewMode & Theme
+        let containerStyle = "";
+        let progressColor = "";
+        
+        // Base colors
+        const accent = theme === 'beige' ? 'text-beige-800' : (theme === 'dark' ? 'text-white' : 'text-gray-900');
+        const subAccent = theme === 'beige' ? 'text-beige-600' : 'text-gray-500 dark:text-gray-400';
+
+        if (viewMode === 'grid') {
+          // Floating Card Style
+          containerStyle = `
+            fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-md rounded-3xl p-4 shadow-2xl backdrop-blur-xl border
+            ${theme === 'dark' ? 'bg-zinc-900/90 border-zinc-700' : theme === 'beige' ? 'bg-beige-100/95 border-beige-300' : 'bg-white/90 border-gray-200'}
+          `;
+          progressColor = theme === 'beige' ? 'accent-beige-600' : 'accent-sky-500';
+        } else if (viewMode === 'list') {
+          // Full Width Bar Style
+          containerStyle = `
+            fixed bottom-0 left-0 w-full p-3 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] backdrop-blur-lg border-t
+            ${theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : theme === 'beige' ? 'bg-[#f7f3e8] border-beige-300' : 'bg-white border-gray-200'}
+          `;
+          progressColor = theme === 'beige' ? 'accent-beige-600' : 'accent-sky-500';
+        } else if (viewMode === 'rank') {
+          // Premium/Gold Style
+          containerStyle = `
+            fixed bottom-4 left-4 right-4 rounded-xl p-4 shadow-2xl border-2
+            ${theme === 'dark' ? 'bg-zinc-900 border-yellow-600' : theme === 'beige' ? 'bg-beige-50 border-yellow-500' : 'bg-white border-yellow-400'}
+            bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjIiIGZpbGw9IiNmZmQ3MDAiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PC9zdmc+')]
+          `;
+          progressColor = 'accent-yellow-500';
+        }
+
+        return (
+          <div className={`${containerStyle} z-50 transition-all duration-500`}>
+            <audio ref={audioRef} />
+            <div className="flex items-center gap-4">
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <h4 className={`font-bold truncate ${accent}`}>{track.name}</h4>
+                <p className={`text-xs truncate ${subAccent}`}>{track.reciterName}</p>
+              </div>
+
+              {/* Controls */}
+              <div className="flex items-center gap-4">
+                <button onClick={onPrev} className={`${subAccent} hover:scale-110 transition`}><Icons.Prev className="w-6 h-6" /></button>
+                <button 
+                  onClick={togglePlay} 
+                  className={`
+                    w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:scale-105 transition active:scale-95
+                    ${viewMode === 'rank' ? 'bg-yellow-500 text-white' : (theme === 'beige' ? 'bg-beige-600 text-white' : 'bg-sky-500 text-white')}
+                  `}
+                >
+                  {isPlaying ? <Icons.Pause className="w-6 h-6" /> : <Icons.Play className="w-6 h-6 ml-1" />}
+                </button>
+                <button onClick={onNext} className={`${subAccent} hover:scale-110 transition`}><Icons.Next className="w-6 h-6" /></button>
+              </div>
+            </div>
+            
+            {/* Progress */}
+            <div className="mt-3 flex items-center gap-2">
+              <span className={`text-[10px] font-mono w-8 text-right ${subAccent}`}>{formatTime(audioRef.current?.currentTime || 0)}</span>
+              <input 
+                type="range" 
+                min="0" 
+                max="100" 
+                value={progress || 0} 
+                onChange={seek}
+                className={`w-full h-1 bg-gray-200 rounded-lg cursor-pointer ${progressColor}`}
+              />
+              <span className={`text-[10px] font-mono w-8 ${subAccent}`}>{formatTime(duration)}</span>
+            </div>
+          </div>
+        );
+      };
+
+      // --- MAIN APP ---
+      const App = () => {
+        // State
+        const [theme, setTheme] = useState('dark'); // 'light', 'dark', 'beige'
+        const [viewMode, setViewMode] = useState('grid'); // 'grid', 'list', 'rank'
+        const [language, setLanguage] = useState('ar');
+        
+        const [reciters, setReciters] = useState([]);
+        const [selectedReciter, setSelectedReciter] = useState(null);
+        const [playlist, setPlaylist] = useState([]);
+        const [currentTrackIndex, setCurrentTrackIndex] = useState(null);
+        const [isLoading, setIsLoading] = useState(false);
+        const [surahMap, setSurahMap] = useState(new Map());
+
+        // Translations
+        const t = {
+          appName: language === 'en' ? 'Reciter Hub' : 'منصة القراء',
+          appDescription: language === 'en' ? 'Listen to the Quran' : 'استمع للقرآن الكريم',
+          search: language === 'en' ? 'Search reciter...' : 'ابحث عن قارئ...',
+          selectPrompt: language === 'en' ? 'Select a reciter to view Surahs' : 'اختر قارئاً لعرض السور',
+          listeners: language === 'en' ? 'Listeners' : 'مستمع',
+        };
+
+        // Effects
+        useEffect(() => {
+          // Apply Theme to Body
+          document.body.className = `
+            ${theme === 'dark' ? 'bg-zinc-950 text-zinc-100' : theme === 'beige' ? 'beige-theme' : 'bg-gray-50 text-gray-800'}
+            ${theme === 'dark' ? 'dark' : ''}
+            transition-colors duration-500 h-screen flex flex-col
+          `;
+          document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+        }, [theme, language]);
+
+        useEffect(() => {
+          const init = async () => {
+            const [rData, sData] = await Promise.all([
+              fetchReciters(language),
+              fetchSurahNames(language)
+            ]);
+            setReciters(rData);
+            const map = new Map();
+            sData.forEach(s => map.set(s.id, s));
+            setSurahMap(map);
+          };
+          init();
+        }, [language]);
+
+        const handleSelectReciter = async (reciter) => {
+          setSelectedReciter(reciter);
+          setIsLoading(true);
+          try {
+            const details = await fetchReciterDetails(reciter.id, language);
+            if (details.moshaf && details.moshaf.length) {
+              const m = details.moshaf[0];
+              const ids = m.surah_list.split(',').map(Number);
+              const list = ids.map(id => ({
+                id,
+                name: surahMap.get(id)?.name || `Surah ${id}`,
+                transliteration: surahMap.get(id)?.transliteration || '',
+                reciterName: reciter.name,
+                audioUrl: `${m.server}/${String(id).padStart(3,'0')}.mp3`
+              }));
+              setPlaylist(list);
+            } else {
+              setPlaylist([]);
+            }
+          } catch(e) { console.error(e); }
+          setIsLoading(false);
+        };
+
+        const currentTrack = useMemo(() => 
+          currentTrackIndex !== null ? playlist[currentTrackIndex] : null
+        , [currentTrackIndex, playlist]);
+
+        return (
+          <>
+            <Header 
+              theme={theme} setTheme={setTheme}
+              viewMode={viewMode} setViewMode={setViewMode}
+              language={language} setLanguage={setLanguage}
+              t={t}
+            />
+            
+            <main className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-[1fr_350px] lg:grid-cols-[1fr_400px] relative">
+              
+              {/* Left Panel: Reciters */}
+              <div className={`h-full overflow-hidden relative z-0 ${selectedReciter ? 'hidden md:block' : 'block'}`}>
+                <ReciterList 
+                  reciters={reciters}
+                  selectedReciter={selectedReciter}
+                  onSelectReciter={handleSelectReciter}
+                  viewMode={viewMode}
+                  theme={theme}
+                  t={t}
+                />
+              </div>
+
+              {/* Right Panel: Surahs */}
+              <div className={`
+                h-full border-l transition-colors duration-300 relative z-10
+                ${theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : theme === 'beige' ? 'bg-[#fdfbf7] border-beige-300' : 'bg-white border-gray-200'}
+                ${selectedReciter ? 'block fixed inset-0 md:static' : 'hidden md:block'}
+              `}>
+                {/* Mobile Back Button */}
+                {selectedReciter && (
+                  <div className="md:hidden p-4 border-b flex items-center gap-2">
+                    <button onClick={() => setSelectedReciter(null)} className="p-2 bg-gray-200 dark:bg-zinc-800 rounded-full">
+                      <Icons.Prev className="w-5 h-5 transform rotate-180" />
+                    </button>
+                    <span className="font-bold">{selectedReciter.name}</span>
+                  </div>
+                )}
+                
+                <SurahList 
+                  playlist={playlist}
+                  currentTrack={currentTrack}
+                  onSelectSurah={(t, idx) => setCurrentTrackIndex(idx)}
+                  isLoading={isLoading}
+                  theme={theme}
+                  t={t}
+                />
+              </div>
+            </main>
+
+            <Player 
+              track={currentTrack}
+              onNext={() => setCurrentTrackIndex((i) => (i + 1) % playlist.length)}
+              onPrev={() => setCurrentTrackIndex((i) => (i - 1 + playlist.length) % playlist.length)}
+              theme={theme}
+              viewMode={viewMode}
+            />
+          </>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
